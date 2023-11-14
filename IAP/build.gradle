@@ -4,7 +4,9 @@ plugins {
     id 'com.google.protobuf'
     id 'maven-publish'
 }
-group='com.github.DaVinci9196'
+
+group = 'com.github.davinci9196'
+
 android {
     namespace 'org.mg.iap'
     compileSdk androidCompileSdk
