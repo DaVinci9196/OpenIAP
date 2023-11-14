@@ -16,20 +16,10 @@ android {
         versionName version
     }
 
-    signingConfigs {
-        release {
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-            storeFile file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword 'android'
-        }
-    }
-
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
         }
     }
     compileOptions {
