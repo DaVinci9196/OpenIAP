@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission
+        android:name="android.permission.GET_ACCOUNTS"
+        android:maxSdkVersion="22" />
+    <uses-permission
+        android:name="android.permission.USE_CREDENTIALS"
+        android:maxSdkVersion="22" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="org.microg.gms.permission.SETTINGS" />
+
+    <application>
+        <service
+            android:name="org.mg.iap.InAppBillingService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.android.vending.billing.InAppBillingService.BIND" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name="org.mg.iap.ui.SheetUIHostActivity"
+            android:exported="true"
+            android:theme="@style/MyDialogStyle"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name="org.mg.iap.ui.PlayWebView"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+    </application>
+</manifest>
