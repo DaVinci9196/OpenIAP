@@ -1,5 +1,4 @@
--keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
--assumenosideeffects class org.mg.iap.LogUtils {
-    *;
+-keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite {
+  <fields>;
 }
 -repackageclasses "aqxf"

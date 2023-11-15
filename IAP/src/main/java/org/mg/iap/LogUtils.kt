@@ -7,7 +7,7 @@ import android.util.Log
  */
 object LogUtils {
     private val FORCE_DEBUG_ENABLED = Log.isLoggable("MGLog99", Log.DEBUG)
-    private val isDebug = true//FORCE_DEBUG_ENABLED || BuildConfig.DEBUG
+    private val isDebug = FORCE_DEBUG_ENABLED || BuildConfig.DEBUG
     private const val DEFAULT_TAG = "billing"
 
     fun d(msg: String) {
