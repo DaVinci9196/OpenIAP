@@ -23,6 +23,7 @@ object HeaderProvider {
             "CAEaSuMFBdCPgQYJxAIED+cBfS+6AVYBIQojDSI3hAEODGxYvQGMAhRMWQEVWxniBQSSAjycAuESkgrgBeAfgCv4KI8VgxHqGNxrRbkI"
         headers["X-DFE-Request-Params"] = "timeoutMs=4000"
         headers["X-Ad-Id"] = "c7818e45-b0fa-47e5-9f02-6bf79bfeeaa0"
+        headers["Connection"] = "Keep-Alive"
         if (deviceInfo.androidId.isNotBlank())
             headers["x-public-android-id"] = deviceInfo.androidId
         if (authData.dfeCookie.isNotBlank())

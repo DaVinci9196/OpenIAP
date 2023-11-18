@@ -1,9 +1,11 @@
 package org.mg.iap.core
 
+import okhttp3.ConnectionPool
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
@@ -18,9 +20,11 @@ class HttpResponse(
 
 object HttpClient {
     private val httpClient = OkHttpClient().newBuilder()
+        .connectionPool(ConnectionPool(10, 10, TimeUnit.MINUTES))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        .protocols(listOf(Protocol.HTTP_1_1))
         .build()
 
     private fun processRequest(request: Request): HttpResponse {

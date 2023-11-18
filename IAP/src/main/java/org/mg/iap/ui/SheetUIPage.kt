@@ -136,6 +136,7 @@ private fun UIComponents(viewState: SheetUIViewState) {
             modifier = Modifier
                 .wrapContentHeight(Alignment.CenterVertically)
                 .wrapContentWidth()
+                .verticalScroll(rememberScrollState())
         ) {
             for (component in footerComponents) {
                 UIComponent(Modifier, component, viewState)
