@@ -25,7 +25,7 @@ import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-
+private val skuDetailsCache = IAPCacheManager(2048)
 class IAPCore(
     private val deviceInfo: DeviceEnvInfo,
     private val clientInfo: ClientInfo,
@@ -87,12 +87,18 @@ class IAPCore(
         }
 
         return try {
+            val requestBody = skuDetailsRequest.toByteArray()
+            val cacheEntry = skuDetailsCache.get(requestBody)
+            if (cacheEntry != null) {
+                return GetSkuDetailsResult.parseFrom(ResponseWrapper.parseFrom(cacheEntry).payload.skuDetailsResponse)
+            }
             val response = HttpClient.post(
                 GooglePlayApi.URL_SKU_DETAILS,
                 HeaderProvider.getDefaultHeaders(authData, deviceInfo),
                 skuDetailsRequest.toByteArray()
             )
             if (response.isSuccessful) {
+                skuDetailsCache.put(requestBody, response.data)
                 GetSkuDetailsResult.parseFrom(ResponseWrapper.parseFrom(response.data).payload.skuDetailsResponse)
             } else {
                 throw RuntimeException("Request failed. code=${response.code}")

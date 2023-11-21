@@ -29,8 +29,16 @@ private class BuyFlowCacheEntry(
     var droidGuardResult: String = ""
 )
 
+private const val EXPIRE_MS = 1 * 60 * 1000
+
+private data class IAPCoreCacheEntry(
+    val iapCore: IAPCore,
+    val expiredAt: Long
+)
+
 object IAPImpl : IInAppBillingService.Stub() {
     private val buyFlowCacheMap = mutableMapOf<String, BuyFlowCacheEntry>()
+    private val iapCoreCacheMap = mutableMapOf<String, IAPCoreCacheEntry>()
     private const val requestCode = 10001
     private val typeList = listOf(
         "subs",
@@ -58,14 +66,25 @@ object IAPImpl : IInAppBillingService.Stub() {
             ?: throw RuntimeException("No Google account found.")
     }
 
+
     private fun createIAPCore(account: Account, pkgName: String): IAPCore {
+        val key = "$pkgName:$account"
+        val cacheEntry = iapCoreCacheMap[key]
+        if (cacheEntry != null) {
+            if (cacheEntry.expiredAt > System.currentTimeMillis())
+                return cacheEntry.iapCore
+            iapCoreCacheMap.remove(key)
+        }
         val authData = AuthManager.getAuthData(account)
             ?: throw RuntimeException("Failed to obtain login token.")
         val deviceEnvInfo = createDeviceEnvInfo()
             ?: throw RuntimeException("Failed to retrieve device information.")
         val clientInfo = createClient(pkgName)
             ?: throw RuntimeException("Failed to retrieve client information.")
-        return IAPCore(deviceEnvInfo, clientInfo, authData)
+        val iapCore = IAPCore(deviceEnvInfo, clientInfo, authData)
+        iapCoreCacheMap[key] =
+            IAPCoreCacheEntry(iapCore, System.currentTimeMillis() + EXPIRE_MS)
+        return iapCore
     }
 
     private fun isBillingSupported(

@@ -1,9 +1,5 @@
 package org.mg.iap.core
 
-import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.Response
-import okio.Buffer
 import java.io.IOException
 import java.security.MessageDigest
 
@@ -13,26 +9,32 @@ class LRUCache<K, V>(private val capacity: Int) : LinkedHashMap<K, V>(capacity, 
     }
 }
 
-class IAPCacheManager(maxSize: Int = 1024) {
-    private val lruCache = LRUCache<String, ByteArray>(maxSize)
+class CacheEntry(
+    val data: ByteArray,
+    val expiredAt: Long
+)
 
-    fun get(request: Request): ByteArray? {
-        val key = "${request.url}_${calculateHash(request.body!!)}"
-        return lruCache[key]
+class IAPCacheManager(maxSize: Int = 1024, private val expireMs: Int = 7200000) {
+    private val lruCache = LRUCache<String, CacheEntry>(maxSize)
+
+    @Synchronized
+    fun get(requestBody: ByteArray): ByteArray? {
+        val entry = lruCache[calculateHash(requestBody)]
+        if (entry == null || entry.expiredAt < System.currentTimeMillis())
+            return null
+        return entry.data
     }
 
-    fun put(request: Request, responseData: ByteArray) {
-        val key = "${request.url}_${calculateHash(request.body!!)}"
-        lruCache[key] = responseData
-        println("IAPCacheManager.put(key=$key, data=${responseData.toHex()})")
+    @Synchronized
+    fun put(requestBody: ByteArray, responseData: ByteArray) {
+        val key = calculateHash(requestBody)
+        lruCache[key] = CacheEntry(responseData, System.currentTimeMillis() + expireMs)
     }
 
     @Throws(IOException::class)
-    private fun calculateHash(body: RequestBody): String {
-        val buffer = Buffer()
-        body.writeTo(buffer)
+    private fun calculateHash(body: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(buffer.readByteArray())
+        digest.update(body)
         return digest.digest().toHex()
     }
 }
