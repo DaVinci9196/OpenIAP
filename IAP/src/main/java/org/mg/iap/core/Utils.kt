@@ -1,6 +1,11 @@
 package org.mg.iap.core
 
 import com.google.protobuf.ByteString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.mg.iap.LogUtils
 import org.mg.iap.proto.BundleItem
 import org.mg.iap.proto.CKDocument
 import org.mg.iap.proto.ClientTokenKt
@@ -12,6 +17,7 @@ import org.mg.iap.proto.skuParam
 import java.security.InvalidParameterException
 import java.security.SecureRandom
 import java.util.Locale
+import org.mg.iap.proto.PurchaseItem
 
 fun List<ByteArray>.toByteStringList(): List<ByteString> {
     return this.map { ByteString.copyFrom(it) }
@@ -179,7 +185,10 @@ fun createClientToken(deviceInfo: DeviceEnvInfo, authData: AuthData): String {
             this.unknown5 = 1
         }
     }
-    return org.mg.iap.core.Base64.encodeToString(clientToken.toByteArray(), org.mg.iap.core.Base64.URL_SAFE or org.mg.iap.core.Base64.NO_WRAP)
+    return org.mg.iap.core.Base64.encodeToString(
+        clientToken.toByteArray(),
+        org.mg.iap.core.Base64.URL_SAFE or org.mg.iap.core.Base64.NO_WRAP
+    )
 }
 
 fun getAcquireCacheKey(
@@ -245,4 +254,50 @@ fun getSkuType(skuType: String): Int {
 
 fun splitDocId(docId: DocId): List<String> {
     return docId.backendDocId.split(":")
+}
+
+fun parsePurchaseItem(purchaseItem: PurchaseItem): List<org.mg.iap.core.PurchaseItem> {
+    val result = mutableListOf<org.mg.iap.core.PurchaseItem>()
+    for (it in purchaseItem.purchaseItemDataList) {
+        if (it == null)
+            continue
+        val spr = splitDocId(it.docId)
+        if (spr.size < 3)
+            continue
+        val (type, _, sku) = spr
+        val (jsonData, signature) = when (type) {
+            "inapp" -> {
+                if (!it.hasInAppPurchase())
+                    continue
+                it.inAppPurchase.jsonData to it.inAppPurchase.signature
+            }
+
+            "subs" -> {
+                if (!it.hasSubsPurchase())
+                    continue
+                it.subsPurchase.jsonData to it.subsPurchase.signature
+            }
+
+            else -> {
+                LogUtils.e("unknown sku type $type")
+                continue
+            }
+        }
+        val jdo = Json.parseToJsonElement(jsonData).jsonObject
+        val pkgName = jdo["packageName"]?.jsonPrimitive?.content ?: continue
+        val purchaseToken = jdo["purchaseToken"]?.jsonPrimitive?.content ?: continue
+        val purchaseState = jdo["purchaseState"]?.jsonPrimitive?.int ?: continue
+        result.add(
+            PurchaseItem(
+                type,
+                sku,
+                pkgName,
+                purchaseToken,
+                purchaseState,
+                jsonData,
+                signature
+            )
+        )
+    }
+    return result
 }

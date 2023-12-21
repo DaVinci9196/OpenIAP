@@ -5,6 +5,7 @@ data class BAction(
     var delay: Int? = null,
     var result: Map<String, Any>? = null,
     var uiInfo: BUIInfo? = null,
+    var srcScreenId: String? = null,
     var screenId: String? = null,
     var droidGuardMap: Map<String, String> = emptyMap(),
     var actionContext: MutableList<ByteArray> = mutableListOf()
@@ -39,6 +40,7 @@ data class BUIComponents(
 
 data class BComponent(
     val tag: String? = null,
+    val uiInfo: BUIInfo? = null,
     val viewInfo: BViewInfo? = null,
     val viewType: ViewType,
     val clickableTextView: BClickableTextView? = null,
@@ -46,7 +48,8 @@ data class BComponent(
     val dividerView: BDividerView? = null,
     val moduloImageView: BModuloImageView? = null,
     val iconTextCombinationView: BIconTextCombinationView? = null,
-    val buttonGroupView: BButtonGroupView? = null
+    val buttonGroupView: BButtonGroupView? = null,
+    val instrumentItemView: BInstrumentItemView? = null
 )
 
 data class BClickableTextView(val playTextView: BPlayTextView? = null)
@@ -59,6 +62,11 @@ data class BViewGroup(
     val playTextView: BPlayTextView? = null
 )
 
+data class BImageGroup(
+    val imageViews: List<BImageView>,
+    val viewInfo: BViewInfo? = null
+)
+
 class BDividerView
 
 data class BModuloImageView(
@@ -66,10 +74,11 @@ data class BModuloImageView(
 )
 
 data class BIconTextCombinationView(
-    val imageView: BImageView? = null,
+    val headerImageView: BImageView? = null,
     val playTextView: BPlayTextView? = null,
     val badgeTextView: BPlayTextView? = null,
-    val singleLineTextViewList: List<BSingleLineTextView>? = null,
+    val middleTextViewList: List<BSingleLineTextView>? = null,
+    val footerImageGroup: BImageGroup? = null,
     val viewInfo: BViewInfo? = null
 )
 
@@ -90,6 +99,13 @@ data class BBulletSpan(
     val gapWidth: Int
 )
 
+data class BImageInfo(
+    val colorFilterValue: Int? = null,
+    val colorFilterType: Int? = null,
+    val filterMode: Int? = null,
+    val scaleType: Int? = null
+)
+
 data class BTextSpan(
     val textSpanType: TextSpanType,
     val bulletSpan: BBulletSpan? = null,
@@ -97,6 +113,7 @@ data class BTextSpan(
 
 data class BImageView(
     val viewInfo: BViewInfo? = null,
+    val imageInfo: BImageInfo? = null,
     val lightUrl: String? = null,
     val darkUrl: String? = null,
     val animation: BAnimation? = null,
@@ -123,6 +140,15 @@ data class BTextInfo(
 
 data class BButtonGroupView(
     val buttonViewList: List<BButtonView>
+)
+
+data class BInstrumentItemView(
+    val icon: BImageView? = null,
+    val text: BPlayTextView? = null,
+    val tips: BPlayTextView? = null,
+    val extraInfo: BPlayTextView? = null,
+    val state: BImageView? = null,
+    val action: BAction? = null,
 )
 
 data class BButtonView(
@@ -259,6 +285,7 @@ enum class ViewType {
     MODULOIMAGEVIEW,
     ICONTEXTCOMBINATIONVIEW,
     BUTTONGROUPVIEW,
+    INSTRUMENTITEMVIEW,
     UNKNOWNVIEW
 }
 

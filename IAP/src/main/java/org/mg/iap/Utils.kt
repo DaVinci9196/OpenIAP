@@ -124,7 +124,7 @@ fun createClient(pkgName: String): ClientInfo? {
 @SuppressLint("MissingPermission")
 fun getSerialNo(): String {
     return try {
-        if (Build.VERSION.SDK_INT < 26) Build.SERIAL else Build.getSerial()
+        if (android.os.Build.VERSION.SDK_INT < 26) android.os.Build.SERIAL else android.os.Build.getSerial()
     } catch (e: SecurityException) {
         return DeviceIdentifier.serial
     }
@@ -178,7 +178,7 @@ fun getBatteryLevel(context: Context): Int {
             batteryLevel = level * 100 / scale
         }
     }
-    if (batteryLevel == -1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    if (batteryLevel == -1 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         context.registerReceiver(null, intentFilter, Context.RECEIVER_EXPORTED)?.let {
             val level = it.getIntExtra("level", -1)
             val scale = it.getIntExtra("scale", -1)
@@ -258,7 +258,7 @@ fun getNetworkData(context: Context): NetworkData {
     if (hasPermissions(
             context,
             listOf(Manifest.permission.ACCESS_NETWORK_STATE)
-        ) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+        ) && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
     ) {
         connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)?.let {
             linkDownstreamBandwidth = (it.linkDownstreamBandwidthKbps * 1000 / 8).toLong()
@@ -312,7 +312,7 @@ fun createDeviceEnvInfo(): DeviceEnvInfo? {
             biometricSupport = true,
             biometricSupportCDD = true,
             deviceId = getDeviceIdentifier(),
-            serialNo = getSerialNo(),
+            serialNo = Build.SERIAL,
             locale = Locale.getDefault(),
             userAgent = "Android-Finsky/${
                 URLEncoder.encode(
@@ -338,7 +338,7 @@ fun createDeviceEnvInfo(): DeviceEnvInfo? {
             release = Build.VERSION.RELEASE!!,
             brand = Build.BRAND!!,
             batteryLevel = getBatteryLevel(context),
-            timeZoneOffset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            timeZoneOffset = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 TimeZone.getDefault().rawOffset.toLong()
             } else {
                 0
@@ -352,7 +352,7 @@ fun createDeviceEnvInfo(): DeviceEnvInfo? {
             ) == 1,
             networkData = getNetworkData(context),
             uptimeMillis = SystemClock.uptimeMillis(),
-            timeZoneDisplayName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            timeZoneDisplayName = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 TimeZone.getDefault().displayName!!
             } else {
                 ""

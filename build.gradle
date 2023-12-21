@@ -16,9 +16,9 @@ plugins {
 allprojects {
     apply plugin: 'idea'
 
-    version = "1.0.2"
+    version = "1.0.6"
     group = 'com.github.DaVinci9196'
-    ext.appVersionCode = 102
+    ext.appVersionCode = 106
     ext.androidCompileSdk = 33
     ext.androidTargetSdk =28
     ext.androidMinSdk = 21

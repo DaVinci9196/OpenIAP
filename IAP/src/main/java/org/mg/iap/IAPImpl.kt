@@ -7,16 +7,13 @@ import android.os.Bundle
 import androidx.core.os.bundleOf
 import com.android.vending.billing.IInAppBillingService
 import com.google.android.gms.droidguard.DroidGuardClient
-import org.mg.iap.core.AcknowledgePurchaseParams
+import org.mg.iap.core.AcquireParams
+import org.mg.iap.core.AcquireResult
+import org.mg.iap.core.BuyFlowParams
 import org.mg.iap.core.ConsumePurchaseParams
 import org.mg.iap.core.GetPurchaseHistoryParams
 import org.mg.iap.core.GetSkuDetailsParams
 import org.mg.iap.core.IAPCore
-import org.mg.iap.core.LaunchBuyFlowParams
-import org.mg.iap.core.LaunchBuyFlowResult
-import org.mg.iap.core.SubmitBuyActionParams
-
-import org.mg.iap.core.ui.BAction
 import org.mg.iap.ui.SheetUIHostActivity
 import org.mg.iap.ui.logic.BuyFlowResult
 import org.mg.iap.ui.logic.SheetUIAction
@@ -24,8 +21,8 @@ import org.mg.iap.ui.logic.SheetUIAction
 private class BuyFlowCacheEntry(
     var packageName: String,
     var account: Account,
-    var buyFlowParams: LaunchBuyFlowParams? = null,
-    var buyFlowResult: LaunchBuyFlowResult? = null,
+    var buyFlowParams: BuyFlowParams? = null,
+    var lastAcquireResult: AcquireResult? = null,
     var droidGuardResult: String = ""
 )
 
@@ -139,7 +136,11 @@ object IAPImpl : IInAppBillingService.Stub() {
         skusBundle: Bundle?
     ): Bundle {
         LogUtils.d("getSkuDetails(apiVersion=$apiVersion, packageName=$packageName, type=$type, skusBundle=$skusBundle)")
-        throw UnsupportedOperationException("getSkuDetails not yet implemented")
+//        throw UnsupportedOperationException("getSkuDetails not yet implemented")
+        return resultBundle(
+            BillingResult.BILLING_UNAVAILABLE.ordinal,
+            "Not yet implemented"
+        )
     }
 
     override fun getBuyIntent(
@@ -260,7 +261,7 @@ object IAPImpl : IInAppBillingService.Stub() {
         } catch (e: RuntimeException) {
             return resultBundle(BillingResult.BILLING_UNAVAILABLE.ordinal, e.message)
         }
-        val params = LaunchBuyFlowParams.build {
+        val params = BuyFlowParams.build {
             this.apiVersion = apiVersion
             this.sku = sku
             this.skuType = type
@@ -291,6 +292,81 @@ object IAPImpl : IInAppBillingService.Stub() {
         )
     }
 
+    fun acquireRequest(
+        cacheKey: String,
+        actionContexts: List<ByteArray> = emptyList(),
+        authToken: String? = null,
+        firstRequest: Boolean = false
+    ): BuyFlowResult {
+        LogUtils.d("acquireRequest(cacheKey=$cacheKey, actionContexts=$actionContexts, authToken=$authToken)")
+        val buyFlowCacheEntry = buyFlowCacheMap[cacheKey] ?: return BuyFlowResult(
+            null, null, resultBundle(
+                BillingResult.DEVELOPER_ERROR.ordinal,
+                "Parameter check error."
+            )
+        )
+        val buyFlowParams = buyFlowCacheEntry.buyFlowParams ?: return BuyFlowResult(
+            null, buyFlowCacheEntry.account, resultBundle(
+                BillingResult.DEVELOPER_ERROR.ordinal,
+                "Parameter check error."
+            )
+        )
+        val params = AcquireParams.build {
+            this.buyFlowParams = buyFlowParams
+            this.actionContext = actionContexts
+            this.authToken = authToken
+            if (!firstRequest) {
+                this.droidGuardResult = buyFlowCacheEntry.droidGuardResult
+                this.lastAcquireResult = buyFlowCacheEntry.lastAcquireResult
+            }
+        }
+
+        val coreResult = try {
+            createIAPCore(
+                buyFlowCacheEntry.account,
+                buyFlowCacheEntry.packageName
+            ).doAcquireRequest(
+                params
+            )
+        } catch (e: RuntimeException) {
+            LogUtils.d("acquireRequest", e)
+            return BuyFlowResult(
+                null,
+                buyFlowCacheEntry.account,
+                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, e.message)
+            )
+        } catch (e: Exception) {
+            LogUtils.d("acquireRequest", e)
+            return BuyFlowResult(
+                null,
+                buyFlowCacheEntry.account,
+                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, "Internal error.")
+            )
+        }
+        LogUtils.d("acquireRequest acquireParsedResult: ${coreResult.acquireParsedResult}")
+        buyFlowCacheEntry.lastAcquireResult = coreResult
+        if (coreResult.acquireParsedResult.action?.droidGuardMap?.isNotEmpty() == true) {
+            DroidGuardClient.getResults(
+                ContextProvider.context,
+                "phonesky_acquire_flow",
+                coreResult.acquireParsedResult.action!!.droidGuardMap
+            ).addOnCompleteListener { task ->
+                buyFlowCacheEntry.droidGuardResult = task.result
+            }
+        }
+        coreResult.acquireParsedResult.purchaseItems.forEach {
+            PurchaseManager.getPurchaseListMgr(
+                buyFlowCacheEntry.account,
+                buyFlowCacheEntry.packageName
+            ).addItem(it)
+        }
+        return BuyFlowResult(
+            coreResult.acquireParsedResult,
+            buyFlowCacheEntry.account,
+            coreResult.acquireParsedResult.result.toBundle()
+        )
+    }
+
     fun requestAuthProofToken(cacheKey: String, password: String): Pair<Int?, String?> {
         val buyFlowCacheEntry = buyFlowCacheMap[cacheKey] ?: return null to null
         return try {
@@ -302,110 +378,6 @@ object IAPImpl : IInAppBillingService.Stub() {
             LogUtils.d("requestAuthProofToken", e)
             null to null
         }
-    }
-
-    fun launchBuyFow(cacheKey: String): BuyFlowResult {
-        LogUtils.d("launchBuyFow(cacheKey=$cacheKey)")
-        val buyFlowCacheEntry = buyFlowCacheMap[cacheKey] ?: return BuyFlowResult(
-            null, null, resultBundle(
-                BillingResult.DEVELOPER_ERROR.ordinal,
-                "Parameter check error."
-            )
-        )
-        val params = buyFlowCacheEntry.buyFlowParams ?: return BuyFlowResult(
-            null, buyFlowCacheEntry.account, resultBundle(
-                BillingResult.DEVELOPER_ERROR.ordinal,
-                "Parameter check error."
-            )
-        )
-        val coreResult = try {
-            createIAPCore(buyFlowCacheEntry.account, buyFlowCacheEntry.packageName).launchBuyFlow(
-                params
-            )
-        } catch (e: RuntimeException) {
-            LogUtils.d("launchBuyFlow", e)
-            return BuyFlowResult(
-                null,
-                buyFlowCacheEntry.account,
-                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, e.message)
-            )
-        } catch (e: Exception) {
-            LogUtils.d("launchBuyFlow", e)
-            return BuyFlowResult(
-                null,
-                buyFlowCacheEntry.account,
-                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, "Internal error.")
-            )
-        }
-        LogUtils.d("launchBuyFow acquireResult: ${coreResult.acquireResult}")
-        buyFlowCacheEntry.buyFlowResult = coreResult
-        if (coreResult.acquireResult.action?.droidGuardMap?.isNotEmpty() == true) {
-            DroidGuardClient.getResults(
-                ContextProvider.context,
-                "phonesky_acquire_flow",
-                coreResult.acquireResult.action!!.droidGuardMap
-            ).addOnCompleteListener { task ->
-                buyFlowCacheEntry.droidGuardResult = task.result
-            }
-        }
-        return BuyFlowResult(
-            coreResult.acquireResult,
-            buyFlowCacheEntry.account,
-            coreResult.resultMap.toBundle()
-        )
-    }
-
-    fun submitBuyAction(
-        cacheKey: String,
-        action: BAction?,
-        authToken: String? = null
-    ): BuyFlowResult {
-        LogUtils.d("submitBuyAction(cacheKey=$cacheKey, action=$action, authToken=$authToken)")
-        val buyFlowCacheEntry = buyFlowCacheMap[cacheKey] ?: return BuyFlowResult(
-            null, null, resultBundle(
-                BillingResult.DEVELOPER_ERROR.ordinal,
-                "Parameter check error."
-            )
-        )
-        val params = SubmitBuyActionParams.build {
-            this.launchBuyFlowResult = buyFlowCacheEntry.buyFlowResult
-            this.droidGuardResult = buyFlowCacheEntry.droidGuardResult
-            this.bAction = action
-            this.authToken = authToken
-        }
-        val coreResult = try {
-            val coreResult =
-                createIAPCore(
-                    buyFlowCacheEntry.account,
-                    buyFlowCacheEntry.packageName
-                ).submitBuyAction(params)
-            coreResult.purchaseItem?.let {
-                PurchaseManager.getPurchaseListMgr(
-                    buyFlowCacheEntry.account,
-                    buyFlowCacheEntry.packageName
-                ).addItem(it)
-            }
-            coreResult
-        } catch (e: RuntimeException) {
-            return BuyFlowResult(
-                null,
-                buyFlowCacheEntry.account,
-                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, e.message)
-            )
-        } catch (e: Exception) {
-            LogUtils.e("submitBuyAction", e)
-            return BuyFlowResult(
-                null,
-                buyFlowCacheEntry.account,
-                resultBundle(BillingResult.DEVELOPER_ERROR.ordinal, "Internal error.")
-            )
-        }
-
-        return BuyFlowResult(
-            coreResult.acquireResult,
-            buyFlowCacheEntry.account,
-            coreResult.resultMap.toBundle()
-        )
     }
 
     override fun getPurchaseHistory(

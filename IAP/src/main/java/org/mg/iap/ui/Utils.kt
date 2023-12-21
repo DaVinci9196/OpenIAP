@@ -5,12 +5,15 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import org.mg.iap.ContextProvider
 import org.mg.iap.LogUtils
 import org.mg.iap.core.ui.BGravity
+import org.mg.iap.core.ui.BImageInfo
 import org.mg.iap.core.ui.BTextInfo
 import org.mg.iap.core.ui.ColorType
 import org.mg.iap.core.ui.TextAlignmentType
@@ -47,9 +50,7 @@ fun getColorByType(t: ColorType?): Color? {
 
         ColorType.MUSIC_3 -> Color.Transparent
 
-        ColorType.ERROR_COLOR_PRIMARY -> if (isSystemInDarkTheme()) Color(0xff003b92) else Color(
-            0xff5f6368
-        )
+        ColorType.ERROR_COLOR_PRIMARY -> MaterialTheme.colorScheme.error
 
         ColorType.PRIMARY_BUTTON_LABEL_DISABLED -> if (isSystemInDarkTheme()) Color(0xff5b5e64) else Color(
             0xff5f6368
@@ -62,6 +63,31 @@ fun getColorByType(t: ColorType?): Color? {
             Color.Transparent
         }
     }
+}
+
+@Composable
+fun getColorFilter(imageInfo: BImageInfo?): ColorFilter? {
+    if (imageInfo?.colorFilterValue != null)
+        return ColorFilter.tint(Color(imageInfo.colorFilterValue))
+    if (imageInfo?.colorFilterType != null) {
+        return when (imageInfo.colorFilterType) {
+            21, 3 -> ColorFilter.tint(
+                if (isSystemInDarkTheme()) Color(0xffe8eaed) else Color(
+                    0xff202124
+                )
+            )
+
+            else -> {
+                LogUtils.d("Unknown color filter type: ${imageInfo.colorFilterType}")
+                null
+            }
+        }
+    }
+    return null
+}
+
+fun getContentScale(imageInfo: BImageInfo?): ContentScale? {
+    return null
 }
 
 fun getFontSizeByType(t: Int?): TextUnit {

@@ -25,11 +25,10 @@
         <activity
             android:name="org.mg.iap.ui.SheetUIHostActivity"
             android:exported="true"
-            android:theme="@style/MyDialogStyle"
+            android:theme="@style/SheetUIStyle"
             android:windowSoftInputMode="adjustResize" />
         <activity
             android:name="org.mg.iap.ui.PlayWebView"
-            android:exported="false"
-            android:screenOrientation="portrait" />
+            android:exported="false" />
     </application>
 </manifest>

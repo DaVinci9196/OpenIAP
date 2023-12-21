@@ -28,7 +28,7 @@ message AcquireRequest {
   string deviceIDBase64 = 19;
   string newAcquireCacheKey = 20;
   string nonce = 22;
-  int32 unknown25 = 25;
+  int32 theme = 25;
   Timestamp ts = 31;
 }
 
@@ -293,14 +293,14 @@ message AcquireResponse {
 }
 
 message AcquireResult {
-  repeated PurchaseItems purchaseItem = 3;
-  PurchaseInfo purchaseInfo = 8;
+  repeated PurchaseItem purchaseItem = 3;
+  OwnedPurchase ownedPurchase = 8;
   string signature = 9;
   PurchaseResponse purchaseResponse = 10;
 }
 
-message PurchaseInfo {
-  repeated PurchaseItems purchaseItem = 1;
+message OwnedPurchase {
+  repeated PurchaseItem purchaseItem = 1;
 }
 
 message PurchaseResponse {
@@ -340,16 +340,27 @@ message UiComponents {
 }
 
 message ContentComponent {
+  UIInfo uiInfo = 1;
   ViewInfo viewInfo = 2;
   string tag = 4;
   oneof UiComponent {
     ClickableTextView clickableTextView = 20;
     ViewGroup viewGroup = 21;
     DividerView dividerView = 23;
+    InstrumentItemView instrumentItemView = 26;
     ModuloImageView moduloImageView = 27;
     IconTextCombinationView iconTextCombinationView = 37;
     ButtonGroupView buttonGroupView = 57;
   }
+}
+
+message InstrumentItemView {
+  ImageView icon = 1;
+  PlayTextView text = 2;
+  PlayTextView tips = 3;
+  ImageView state = 5;
+  Action action = 6;
+  PlayTextView extraInfo = 7;
 }
 
 message ModuloImageView {
@@ -370,9 +381,19 @@ message IconView {
   string text = 2;
 }
 
+message ImageInfo {
+  oneof ColorFilter{
+    int32 value = 1;
+    int32 valueType = 3;
+  }
+  int32 modeType = 2;
+  int32 scaleType = 5;
+}
+
 message ImageView {
   ThumbnailImageView thumbnailImageView = 1;
   ViewInfo viewInfo = 2;
+  ImageInfo imageInfo = 4;
   IconView iconView = 5;
   oneof AnimationType{
     Animation animation = 6;
@@ -428,14 +449,18 @@ message ThumbnailImageView {
   string darkUrl = 28;
 }
 
+message ImageGroup {
+  repeated ImageView imageView = 1;
+  ViewInfo viewInfo = 2;
+}
+
 message IconTextCombinationView {
-  oneof IV {
-    ImageView imageView = 1;
-  }
+  ImageView headerImageView = 1;
   PlayTextView playTextView = 2;
   repeated SingleLineTextView singleLineTextView = 5;
   ViewInfo viewInfo = 6;
   PlayTextView badgeTextView = 9;
+  ImageGroup footerImageGroup = 12;
 }
 
 message SingleLineTextView {
@@ -481,6 +506,7 @@ message TextInfo {
 }
 
 message FooterComponent {
+  UIInfo uiInfo = 1;
   ViewInfo viewInfo = 2;
   string tag = 5;
   oneof UiComponent {
@@ -514,10 +540,17 @@ message UIInfo {
   int32 classType = 5;
 }
 
+message NavigateToPage {
+  string id = 1;
+  string from = 2;
+  Action action = 3;
+}
+
 message Action {
   TimerAction timerAction = 3;
   ShowAction showAction = 4;
   bytes actionContext = 7;
+  NavigateToPage navigateToPage = 8;
   ViewClickAction viewClickAction = 10;
   OptionalAction optionalAction = 19;
   ActionExt actionExt = 148814548;
@@ -566,7 +599,7 @@ message ActionExt {
 }
 
 message AcknowledgePurchaseResponse {
-  PurchaseItems purchaseItem = 1;
+  PurchaseItem purchaseItem = 1;
   FailedResponse failedResponse = 2;
 }
 
@@ -599,11 +632,11 @@ message SkuDetails {
 }
 
 message ConsumePurchaseResponse {
-  PurchaseItems purchaseItem = 1;
+  PurchaseItem purchaseItem = 1;
   FailedResponse failedResponse = 3;
 }
 
-message PurchaseItems {
+message PurchaseItem {
   repeated PurchaseItemData purchaseItemData = 4;
 }
 

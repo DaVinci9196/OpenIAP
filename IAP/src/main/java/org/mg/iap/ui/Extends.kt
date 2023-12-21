@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import org.mg.iap.containsAny
 import org.mg.iap.core.ui.BGravity
@@ -71,8 +74,19 @@ fun Modifier.visibility(visibleType: Int): Modifier {
     }
 }
 
-fun Modifier.applyViewInfo(viewInfo: BViewInfo?): Modifier = composed {
+fun Modifier.applySize(size: DpSize?): Modifier = composed {
     this.let { mit ->
+        var newModifier = mit
+        size?.let {
+            newModifier = newModifier.size(size)
+        }
+        newModifier
+    }
+}
+
+@Composable
+fun Modifier.applyViewInfo(viewInfo: BViewInfo?): Modifier {
+    return this.let { mit ->
         var newModifier = mit
         viewInfo?.visibilityType?.let {
             newModifier = newModifier.visibility(it)
@@ -89,8 +103,21 @@ fun Modifier.applyViewInfo(viewInfo: BViewInfo?): Modifier = composed {
         viewInfo?.bottomMargin?.let {
             newModifier = newModifier.padding(bottom = Dp(it.takeIf { it > 0 } ?: 0f))
         }
-        viewInfo?.action?.let {
-            newModifier = newModifier.clickable { }
+        viewInfo?.action?.let { action ->
+            when (action.uiInfo?.uiType) {
+                UIType.BILLING_PROFILE_SCREEN_ABANDON,
+                UIType.PURCHASE_CART_PAYMENT_OPTIONS_LINK,
+                UIType.BILLING_PROFILE_OPTION_REDEEM_CODE,
+                UIType.BILLING_PROFILE_OPTION_ADD_PLAY_CREDIT,
+                UIType.BILLING_PROFILE_OPTION_CREATE_INSTRUMENT -> {
+                    val viewState = LocalSheetUIViewState.current
+                    newModifier = newModifier.clickable {
+                        viewState.onClickAction(action)
+                    }
+                }
+
+                else -> {}
+            }
         }
         viewInfo?.width?.let {
             newModifier = newModifier.width(Dp(it))

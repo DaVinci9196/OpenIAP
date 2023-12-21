@@ -3,12 +3,14 @@ package org.mg.iap.core
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.mg.iap.proto.AcquireRequest
 import org.mg.iap.proto.DocId
 import org.mg.iap.proto.ResponseWrapper
 import org.mg.iap.proto.acknowledgePurchaseRequest
 import org.mg.iap.proto.acquireRequest
 import org.mg.iap.proto.cKDocument
 import org.mg.iap.proto.clientInfo
+import org.mg.iap.proto.copy
 import org.mg.iap.proto.deviceAuthInfo
 import org.mg.iap.proto.docId
 import org.mg.iap.proto.documentInfo
@@ -108,17 +110,18 @@ class IAPCore(
         }
     }
 
-    fun launchBuyFlow(params: LaunchBuyFlowParams): LaunchBuyFlowResult {
+    private fun createAcquireRequest(params: AcquireParams): AcquireRequest {
         val theme = 2
 
-        val skuPackageName = params.skuParams["skuPackageName"] ?: clientInfo.pkgName
-        val docId = if (params.skuSerializedDockIdList?.isNotEmpty() == true) {
-            val sDocIdBytes = org.mg.iap.core.Base64.decode(params.skuSerializedDockIdList[0], 10)
+        val skuPackageName = params.buyFlowParams.skuParams["skuPackageName"] ?: clientInfo.pkgName
+        val docId = if (params.buyFlowParams.skuSerializedDockIdList?.isNotEmpty() == true) {
+            val sDocIdBytes = Base64.decode(params.buyFlowParams.skuSerializedDockIdList[0], 10)
             DocId.parseFrom(sDocIdBytes)
         } else {
             docId {
-                this.backendDocId = "${params.skuType}:$skuPackageName:${params.sku}"
-                this.type = getSkuType(params.skuType)
+                this.backendDocId =
+                    "${params.buyFlowParams.skuType}:$skuPackageName:${params.buyFlowParams.sku}"
+                this.type = getSkuType(params.buyFlowParams.skuType)
                 this.backend = 3
             }
         }
@@ -126,21 +129,21 @@ class IAPCore(
         val documentInfo = documentInfo {
             this.docId = docId
             this.unknown2 = 1
-            if (params.skuOfferIdTokenList?.isNotEmpty() == true) {
-                if (params.skuOfferIdTokenList[0].isNotBlank())
-                    this.token14 = params.skuOfferIdTokenList[0]
+            if (params.buyFlowParams.skuOfferIdTokenList?.isNotEmpty() == true) {
+                if (params.buyFlowParams.skuOfferIdTokenList[0].isNotBlank())
+                    this.token14 = params.buyFlowParams.skuOfferIdTokenList[0]
             }
         }
 
-        val authFrequency = if (params.needAuth) 0 else 3
-        val acquireRequest = acquireRequest {
+        val authFrequency = if (params.buyFlowParams.needAuth) 0 else 3
+        return acquireRequest {
             this.documentInfo = documentInfo
             this.clientInfo = clientInfo {
-                this.apiVersion = params.apiVersion
+                this.apiVersion = params.buyFlowParams.apiVersion
                 this.package_ = this@IAPCore.clientInfo.pkgName
                 this.versionCode = this@IAPCore.clientInfo.versionCode
                 this.signatureMD5 = this@IAPCore.clientInfo.signatureMD5
-                this.skuParamList.addAll(mapToSkuParamList(params.skuParams))
+                this.skuParamList.addAll(mapToSkuParamList(params.buyFlowParams.skuParams))
                 this.unknown8 = 1
                 this.installerPackage = deviceInfo.gpPkgName
                 this.unknown10 = false
@@ -151,10 +154,10 @@ class IAPCore(
                     }
                 }
                 this.versionCode1 = this@IAPCore.clientInfo.versionCode
-                if (params.oldSkuPurchaseToken?.isNotBlank() == true)
-                    this.oldSkuPurchaseToken = params.oldSkuPurchaseToken
-                if (params.oldSkuPurchaseId?.isNotBlank() == true)
-                    this.oldSkuPurchaseId = params.oldSkuPurchaseId
+                if (params.buyFlowParams.oldSkuPurchaseToken?.isNotBlank() == true)
+                    this.oldSkuPurchaseToken = params.buyFlowParams.oldSkuPurchaseToken
+                if (params.buyFlowParams.oldSkuPurchaseId?.isNotBlank() == true)
+                    this.oldSkuPurchaseId = params.buyFlowParams.oldSkuPurchaseId
             }
             this.clientTokenB64 =
                 createClientToken(this@IAPCore.deviceInfo, this@IAPCore.authData)
@@ -188,95 +191,56 @@ class IAPCore(
                 ),
                 this@IAPCore.clientInfo.pkgName,
                 mapOf(
-                    "enablePendingPurchases" to (params.skuParams["enablePendingPurchases"]
+                    "enablePendingPurchases" to (params.buyFlowParams.skuParams["enablePendingPurchases"]
                         ?: false).toString()
                 ),
                 authFrequency
             )
             this.nonce = createNonce()
-            this.unknown25 = theme
+            this.theme = theme
             this.ts = timestamp {
                 val ts = System.currentTimeMillis()
                 this.seconds = TimeUnit.MILLISECONDS.toSeconds(ts)
                 this.nanos = ((ts + TimeUnit.HOURS.toMillis(1L)) % 1000L * 1000000L).toInt()
             }
-        }
-
-        return try {
-            val response = HttpClient.post(
-                "${GooglePlayApi.URL_EES_ACQUIRE}?theme=$theme",
-                HeaderProvider.getDefaultHeaders(authData, deviceInfo),
-                acquireRequest.toByteArray()
-            )
-            if (response.isSuccessful) {
-                LaunchBuyFlowResult.parseFrom(
-                    params,
-                    acquireRequest,
-                    ResponseWrapper.parseFrom(response.data).payload.acquireResponse
-                )
-            } else {
-                throw RuntimeException("Request failed. code=${response.code}")
-            }
-        } catch (e: IOException) {
-            throw RuntimeException("Network request failed. message=${e.message}")
         }
     }
 
-    fun submitBuyAction(params: SubmitBuyActionParams): SubmitBuyActionResult {
-        val theme = params.launchBuyFlowResult.acquireRequest.unknown25
-        val acquireRequest = acquireRequest {
-            this.documentInfo = params.launchBuyFlowResult.acquireRequest.documentInfo
-            this.clientInfo = params.launchBuyFlowResult.acquireRequest.clientInfo
-            this.serverContextToken =
-                params.launchBuyFlowResult.acquireResponse.serverContextToken
-            this.actionContext.addAll(
-                params.launchBuyFlowResult.acquireResult.action?.actionContext?.toByteStringList()
-                    ?: emptyList()
-            )
-            this.actionContext.addAll(
-                params.action?.actionContext?.toByteStringList() ?: emptyList()
-            )
-            this.clientTokenB64 = createClientToken(deviceInfo, authData)
-            this.deviceAuthInfo = deviceAuthInfo {
-                this.canAuthenticate =
-                    params.launchBuyFlowResult.acquireRequest.deviceAuthInfo.canAuthenticate
-                this.unknown5 =
-                    params.launchBuyFlowResult.acquireRequest.deviceAuthInfo.unknown5
-                this.unknown9 =
-                    params.launchBuyFlowResult.acquireRequest.deviceAuthInfo.unknown9
-                this.authFrequency =
-                    params.launchBuyFlowResult.acquireRequest.deviceAuthInfo.authFrequency
-                this.itemColor =
-                    params.launchBuyFlowResult.acquireRequest.deviceAuthInfo.itemColor
-                if (params.droidGuardResult?.isNotBlank() == true) {
-                    this.droidGuardPayload = params.droidGuardResult
+    fun doAcquireRequest(params: AcquireParams): AcquireResult {
+        val acquireRequest =
+            if (params.lastAcquireResult == null) {
+                createAcquireRequest(params)
+            } else {
+                params.lastAcquireResult!!.acquireRequest.copy {
+                    this.serverContextToken =
+                        params.lastAcquireResult!!.acquireResponse.serverContextToken
+                    this.actionContext.addAll(params.actionContext.toByteStringList())
+                    this.deviceAuthInfo =
+                        params.lastAcquireResult!!.acquireRequest.deviceAuthInfo.copy {
+                            if (params.droidGuardResult?.isNotBlank() == true) {
+                                this.droidGuardPayload = params.droidGuardResult
+                            }
+                        }
+                    params.authToken?.let {
+                        this.authTokens.put("rpt", it)
+                    }
+                    this.ts = timestamp {
+                        val ts = System.currentTimeMillis()
+                        this.seconds = TimeUnit.MILLISECONDS.toSeconds(ts)
+                        this.nanos = ((ts + TimeUnit.HOURS.toMillis(1L)) % 1000L * 1000000L).toInt()
+                    }
                 }
             }
-            params.authToken?.let {
-                this.authTokens.put("rpt", it)
-            }
-            this.unknown12 = params.launchBuyFlowResult.acquireRequest.unknown12
-            this.deviceIDBase64 = params.launchBuyFlowResult.acquireRequest.deviceIDBase64
-            this.newAcquireCacheKey =
-                params.launchBuyFlowResult.acquireRequest.newAcquireCacheKey
-            this.nonce = params.launchBuyFlowResult.acquireRequest.nonce
-            this.unknown25 = theme
-            this.ts = timestamp {
-                val ts = System.currentTimeMillis()
-                this.seconds = TimeUnit.MILLISECONDS.toSeconds(ts)
-                this.nanos = ((ts + TimeUnit.HOURS.toMillis(1L)) % 1000L * 1000000L).toInt()
-            }
-        }
-
         return try {
             val response = HttpClient.post(
-                "${GooglePlayApi.URL_EES_ACQUIRE}?theme=$theme",
+                "${GooglePlayApi.URL_EES_ACQUIRE}?theme=${acquireRequest.theme}",
                 HeaderProvider.getDefaultHeaders(authData, deviceInfo),
                 acquireRequest.toByteArray()
             )
             if (response.isSuccessful) {
-                SubmitBuyActionResult.parseFrom(
+                AcquireResult.parseFrom(
                     params,
+                    acquireRequest,
                     ResponseWrapper.parseFrom(response.data).payload.acquireResponse
                 )
             } else {

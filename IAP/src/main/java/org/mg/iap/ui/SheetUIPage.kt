@@ -1,27 +1,36 @@
 package org.mg.iap.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.graphics.ExperimentalAnimationGraphicsApi
 import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
@@ -30,18 +39,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import org.mg.iap.LogUtils
 import org.mg.iap.R
 import org.mg.iap.core.ui.ActionType
@@ -51,6 +67,7 @@ import org.mg.iap.core.ui.BClickableTextView
 import org.mg.iap.core.ui.BComponent
 import org.mg.iap.core.ui.BIconTextCombinationView
 import org.mg.iap.core.ui.BImageView
+import org.mg.iap.core.ui.BInstrumentItemView
 import org.mg.iap.core.ui.BModuloImageView
 import org.mg.iap.core.ui.BPlayTextView
 import org.mg.iap.core.ui.BViewGroup
@@ -63,10 +80,24 @@ import org.mg.iap.ui.theme.OpenIAPTheme
 import org.mg.iap.ui.widgets.LoadingDialog
 import org.mg.iap.ui.widgets.PasswdInputDialog
 
+val LocalSheetUIViewState =
+    compositionLocalOf<SheetUIViewState> { error("No default value provided.") }
+
+@Composable
+fun SetStatusBarColor(color: Color) {
+    val systemUiController = rememberSystemUiController()
+    SideEffect {
+        systemUiController.setSystemBarsColor(color)
+    }
+}
+
 @Composable
 fun SheetUIPage(viewModel: SheetUIViewModel) {
     OpenIAPTheme {
-        SheetUIView(viewModel.sheetUIViewState)
+        SetStatusBarColor(MaterialTheme.colorScheme.background)
+        CompositionLocalProvider(LocalSheetUIViewState provides viewModel.sheetUIViewState) {
+            SheetUIView(viewModel.sheetUIViewState)
+        }
         LoadingDialog(viewModel.loadingDialogVisible)
         PasswdInputDialog(viewModel.passwdInputViewState)
     }
@@ -76,6 +107,9 @@ fun SheetUIPage(viewModel: SheetUIViewModel) {
 private fun SheetUIView(viewState: SheetUIViewState) {
     if (!viewState.visible)
         return
+    BackHandler(true) {
+        LogUtils.d("OnBackPressed")
+    }
     Surface(
         modifier = Modifier
             .wrapContentHeight()
@@ -104,11 +138,13 @@ private fun UIComponents(viewState: SheetUIViewState) {
                 .wrapContentWidth()
         ) {
             for (component in headerComponents) {
+                if (component.uiInfo?.uiType == UIType.BILLING_PROFILE_MORE_OPTION_BUTTON_SHOW_HIDEABLE_INSTRUMENT)
+                    continue
                 UIComponent(Modifier, component, viewState)
             }
         }
     }
-    if (contentComponents.isNotEmpty()) {
+    if (contentComponents.isNotEmpty() || footerComponents.isNotEmpty()) {
         Column(
             modifier = Modifier
                 .applyUITypePadding(viewState.showScreen.uiInfo?.uiType)
@@ -123,31 +159,20 @@ private fun UIComponents(viewState: SheetUIViewState) {
                     viewState
                 )
             }
-        }
-    }
-    if (viewState.showScreen.uiInfo?.uiType == UIType.PURCHASE_ERROR_SCREEN) {
-        Box(
-            modifier = Modifier
-                .padding(top = 40.dp)
-        )
-    }
-    if (footerComponents.isNotEmpty()) {
-        Column(
-            modifier = Modifier
-                .wrapContentHeight(Alignment.CenterVertically)
-                .wrapContentWidth()
-                .verticalScroll(rememberScrollState())
-        ) {
+            if (viewState.showScreen.uiInfo?.uiType == UIType.PURCHASE_ERROR_SCREEN) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 40.dp)
+                )
+            }
+
             for (component in footerComponents) {
                 UIComponent(Modifier, component, viewState)
             }
         }
     }
-    Box(
-        modifier = Modifier
-            .navigationBarsPadding()
-            .padding(top = 15.dp)
-    )
+
+    Box(modifier = Modifier.padding(top = 15.dp))
     if (action?.type == ActionType.DELAY && action.delay != null) {
         viewState.onClickAction(action)
     }
@@ -198,6 +223,12 @@ private fun UIComponent(
                 component.buttonGroupView!!
             )
 
+            ViewType.INSTRUMENTITEMVIEW -> InstrumentItemView(
+                modifier = applyAlignment(Modifier, component.viewInfo),
+                viewState,
+                component.instrumentItemView!!
+            )
+
             else -> LogUtils.d("invalid component type $type")
         }
     }
@@ -221,14 +252,16 @@ private fun PlayTextView(
             }
         }
     }
+    val fontSize = getFontSizeByType(data.textInfo?.styleType)
     textValue += data.text
     HtmlText(
         text = textValue,
         color = textColor,
-        fontSize = getFontSizeByType(data.textInfo?.styleType),
+        fontSize = fontSize,
         textAlign = getTextAlignment(data.textInfo),
         maxLines = data.textInfo?.maxLines ?: Int.MAX_VALUE,
-        modifier = modifier.applyViewInfo(data.viewInfo)
+        modifier = modifier.applyViewInfo(data.viewInfo),
+        lineHeight = fontSize.times(1.1)
     )
 }
 
@@ -255,7 +288,7 @@ private fun IconTextCombinationView(
                 .wrapContentWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            data.imageView?.let {
+            data.headerImageView?.let {
                 ImageView(
                     data = it,
                     modifier = applyAlignment(Modifier, it.viewInfo),
@@ -264,7 +297,7 @@ private fun IconTextCombinationView(
             data.playTextView?.let {
                 PlayTextView(modifier = applyAlignment(Modifier, it.viewInfo), data = it)
             }
-            if (data.singleLineTextViewList == null)
+            if (data.middleTextViewList == null)
                 return
             Column(
                 modifier = applyAlignment(Modifier, data.viewInfo)
@@ -272,7 +305,7 @@ private fun IconTextCombinationView(
                     .wrapContentHeight()
                     .wrapContentWidth()
             ) {
-                for (singleLineTextView in data.singleLineTextViewList!!) {
+                for (singleLineTextView in data.middleTextViewList) {
                     Row(
                         modifier = Modifier
                             .wrapContentWidth()
@@ -299,6 +332,28 @@ private fun IconTextCombinationView(
                     }
                 }
             }
+            if (data.footerImageGroup?.imageViews?.isNotEmpty() == true) {
+                val viewInfo = data.footerImageGroup.viewInfo
+                val imageViews = data.footerImageGroup.imageViews
+                Spacer(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+                Column(
+                    modifier = applyAlignment(Modifier, viewInfo)
+                        .applyViewInfo(viewInfo)
+                        .wrapContentHeight()
+                        .wrapContentWidth()
+                ) {
+                    imageViews.forEach {
+                        ImageView(
+                            data = it,
+                            modifier = applyAlignment(Modifier, it.viewInfo),
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -312,6 +367,93 @@ private fun ClickableTextView(
     if (playTextView.text.isEmpty())
         return
     PlayTextView(modifier, data = playTextView)
+}
+
+@Composable
+private fun InstrumentItemView(
+    modifier: Modifier = Modifier,
+    viewState: SheetUIViewState,
+    data: BInstrumentItemView
+) {
+    var newModify = modifier
+        .wrapContentHeight()
+        .fillMaxWidth()
+    newModify = when (data.action?.uiInfo?.uiType) {
+        UIType.BILLING_PROFILE_EXISTING_INSTRUMENT,
+        UIType.BILLING_PROFILE_OPTION_ADD_PLAY_CREDIT,
+        UIType.BILLING_PROFILE_OPTION_REDEEM_CODE,
+        UIType.BILLING_PROFILE_OPTION_CREATE_INSTRUMENT -> {
+            newModify.clickable {
+                viewState.onClickAction(data.action)
+            }
+        }
+
+        else -> newModify
+    }
+
+    Row(
+        modifier = newModify
+    ) {
+        data.icon?.let {
+            ImageView(
+                data = it,
+                modifier = applyAlignment(Modifier, it.viewInfo)
+                    .align(Alignment.CenterVertically),
+                size = DpSize(32.dp, 32.dp)
+            )
+        }
+        if (data.text != null || data.tips != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .wrapContentSize(),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.Center
+            ) {
+                data.text?.let {
+                    PlayTextView(
+                        applyAlignment(
+                            Modifier,
+                            it.viewInfo
+                        ).wrapContentSize(),
+                        data = it
+                    )
+                }
+                data.tips?.let {
+                    PlayTextView(
+                        applyAlignment(
+                            Modifier,
+                            it.viewInfo
+                        ).wrapContentSize(),
+                        data = it
+                    )
+                }
+                data.extraInfo?.let {
+                    PlayTextView(
+                        applyAlignment(
+                            Modifier,
+                            it.viewInfo
+                        ).wrapContentSize(),
+                        data = it
+                    )
+                }
+            }
+        }
+        data.state?.let {
+            Spacer(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(Color.Red)
+            )
+            ImageView(
+                data = it,
+                modifier = applyAlignment(Modifier, it.viewInfo)
+                    .align(Alignment.CenterVertically),
+                size = DpSize(32.dp, 32.dp)
+            )
+        }
+    }
 }
 
 @Composable
@@ -348,48 +490,75 @@ private fun ButtonGroupView(
 @Composable
 private fun ImageView(
     modifier: Modifier = Modifier,
-    data: BImageView
+    data: BImageView,
+    size: DpSize? = null,
 ) {
     val imageLoader = ImageLoader.Builder(LocalContext.current).components {
         add(SvgDecoder.Factory())
     }.build()
-    when (data.viewInfo?.contentDescription) {
-        "Google Play" -> {
-            Icon(
-                painter = rememberAsyncImagePainter(R.raw.google_play_white, imageLoader),
-                modifier = modifier.applyViewInfo(data.viewInfo),
-                contentDescription = data.viewInfo?.contentDescription
+    ((if (isSystemInDarkTheme()) data.darkUrl else data.lightUrl) ?: data.darkUrl
+    ?: data.lightUrl)?.let {
+        AsyncImage(
+            modifier = modifier
+                .applyViewInfo(data.viewInfo)
+                .applySize(size),
+            model = it,
+            contentDescription = data.viewInfo?.contentDescription,
+            colorFilter = getColorFilter(data.imageInfo),
+            contentScale = getContentScale(data.imageInfo) ?: ContentScale.Fit
+        )
+    }
+    data.animation?.let {
+        if (it.type == AnimationType.CHECK_MARK.value) {
+            AnimatedVector(
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .applySize(size),
+                R.drawable.anim_check_mark
             )
         }
+    }
+    data.iconView?.let {
+        when (it.type) {
+            1 -> Icon(
+                Icons.Filled.CheckCircle,
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .size(24.dp),
+                contentDescription = data.viewInfo?.contentDescription
+            )
 
-        else -> {
-            ((if (isSystemInDarkTheme()) data.darkUrl else data.lightUrl) ?: data.darkUrl
-            ?: data.lightUrl)?.let {
-                AsyncImage(
-                    modifier = modifier.applyViewInfo(data.viewInfo),
-                    model = it,
-                    contentDescription = data.viewInfo?.contentDescription
-                )
-            }
-            data.animation?.let {
-                if (it.type == AnimationType.CHECK_MARK.value) {
-                    AnimatedVector(
-                        modifier = modifier.applyViewInfo(data.viewInfo),
-                        R.drawable.anim_check_mark
-                    )
-                }
-            }
-            data.iconView?.let {
-                if (it.type == 27) {
-                    Icon(
-                        painter = rememberAsyncImagePainter(R.raw.icon, imageLoader),
-                        modifier = modifier
-                            .applyViewInfo(data.viewInfo)
-                            .size(11.dp),
-                        contentDescription = data.viewInfo?.contentDescription
-                    )
-                }
-            }
+            3 -> Icon(
+                Icons.Filled.KeyboardArrowRight,
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .size(24.dp),
+                contentDescription = data.viewInfo?.contentDescription
+            )
+
+            21 -> Icon(
+                Icons.Filled.ArrowBack,
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .size(48.dp),
+                contentDescription = data.viewInfo?.contentDescription
+            )
+
+            27 -> Icon(
+                painter = rememberAsyncImagePainter(R.raw.icon, imageLoader),
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .size(11.dp),
+                contentDescription = data.viewInfo?.contentDescription
+            )
+
+            99 -> Icon(
+                painter = rememberAsyncImagePainter(R.raw.google_play_white, imageLoader),
+                modifier = modifier
+                    .applyViewInfo(data.viewInfo)
+                    .applySize(size),
+                contentDescription = data.viewInfo?.contentDescription
+            )
         }
     }
 }
@@ -421,6 +590,7 @@ private fun ViewGroup(
             PlayTextView(modifier = applyAlignment(Modifier, it.viewInfo), data = it)
         }
         data.imageView3?.let {
+            Spacer(modifier = Modifier.weight(1f))
             ImageView(modifier = applyAlignment(Modifier, it.viewInfo), data = it)
         }
     }

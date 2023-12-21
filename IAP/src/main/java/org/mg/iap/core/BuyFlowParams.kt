@@ -1,6 +1,6 @@
 package org.mg.iap.core
 
-class LaunchBuyFlowParams private constructor(
+data class BuyFlowParams(
     val apiVersion: Int,
     val sku: String,
     val skuType: String,
@@ -44,7 +44,7 @@ class LaunchBuyFlowParams private constructor(
         var oldSkuPurchaseToken: String? = null
         var oldSkuPurchaseId: String? = null
 
-        fun build(): LaunchBuyFlowParams {
+        fun build(): BuyFlowParams {
             if (apiVersion == null) {
                 throw RuntimeException("apiVersion not set")
             }
@@ -54,7 +54,7 @@ class LaunchBuyFlowParams private constructor(
             if (skuType.isEmpty()) {
                 throw RuntimeException("skuType not set")
             }
-            return LaunchBuyFlowParams(this)
+            return BuyFlowParams(this)
         }
     }
 }

@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.os.bundleOf
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -21,11 +20,11 @@ import org.mg.iap.KEY_IAP_SHEET_UI_PARAM
 import org.mg.iap.LogUtils
 import org.mg.iap.R
 import org.mg.iap.SettingsManager
+import org.mg.iap.core.toHex
 import org.mg.iap.core.ui.ActionType
 import org.mg.iap.core.ui.BAction
 import org.mg.iap.core.ui.UIType
 import org.mg.iap.decodeHex
-import org.mg.iap.getGoogleAccount
 import org.mg.iap.resultBundle
 
 enum class SheetUIAction {
@@ -46,7 +45,7 @@ data class NotificationEvent(
 
 class SheetUIViewModel : ViewModel() {
     private val _event = Channel<NotificationEvent>()
-    val event = _event.receiveAsFlow().asLiveData(Dispatchers.Main)
+    val event = _event.receiveAsFlow()
     var startParams: Bundle? = null
 
     var loadingDialogVisible by mutableStateOf(value = false)
@@ -64,6 +63,7 @@ class SheetUIViewModel : ViewModel() {
             onCheckedChange = ::handlePasswdCheckedChange
         )
     )
+    private lateinit var lastBuyFlowResult: BuyFlowResult
 
     private fun finishWithResult(result: Bundle) {
         viewModelScope.launch {
@@ -76,11 +76,20 @@ class SheetUIViewModel : ViewModel() {
         passwdInputViewState = passwdInputViewState.copy(visible = false)
     }
 
-    private suspend fun submitBuyAction(action: BAction? = null, authToken: String? = null) {
+    private suspend fun submitBuyAction(authToken: String? = null) {
         val param = startParams?.getString(KEY_IAP_SHEET_UI_PARAM) ?: return finishWithResult(
             sheetUIViewState.result
         )
-        val buyFlowResult = IAPImpl.submitBuyAction(param, action, authToken)
+        val buyFlowResult =
+            IAPImpl.acquireRequest(param, sheetUIViewState.actionContextList, authToken)
+        handleBuyFlowResult(buyFlowResult)
+    }
+
+    private suspend fun doAcquireRequest() {
+        val param = startParams?.getString(KEY_IAP_SHEET_UI_PARAM) ?: return finishWithResult(
+            sheetUIViewState.result
+        )
+        val buyFlowResult = IAPImpl.acquireRequest(param, sheetUIViewState.actionContextList)
         handleBuyFlowResult(buyFlowResult)
     }
 
@@ -106,17 +115,7 @@ class SheetUIViewModel : ViewModel() {
             }
             LogUtils.d("handleBuyButtonClicked encodedRapt: $encodedRapt")
             SettingsManager.setAuthStatus(!passwdInputViewState.checked)
-            val action = if (passwdInputViewState.bAction != null) {
-                passwdInputViewState.bAction!!.actionContext.add("ea010408011001b80301".decodeHex())
-                passwdInputViewState.bAction!!
-            } else {
-                BAction(
-                    ActionType.SHOW,
-                    actionContext = mutableListOf("ea010408011001b80301".decodeHex()),
-                )
-            }
-            action.actionContext.add("0a020802b80301".decodeHex())
-            submitBuyAction(action = action, authToken = encodedRapt)
+            submitBuyAction(authToken = encodedRapt)
         }
     }
 
@@ -130,22 +129,22 @@ class SheetUIViewModel : ViewModel() {
             ?: return finishWithResult(sheetUIViewState.result)
         when (val uiType = nextShowScreen.uiInfo?.uiType) {
             UIType.LOADING_SPINNER -> {
-                loadingDialogVisible = true
-                passwdInputViewState = passwdInputViewState.copy(visible = false)
-                sheetUIViewState = sheetUIViewState.copy(visible = false)
+                showLoading()
+                sheetUIViewState.actionContextList.addAll(action.actionContext)
                 viewModelScope.launch(Dispatchers.IO) {
-                    submitBuyAction(action)
+                    submitBuyAction()
                 }
             }
 
             UIType.PURCHASE_AUTH_SCREEN -> {
                 LogUtils.d("handleBuyButtonClicked need auth")
                 val account =
-                    getGoogleAccount() ?: return finishWithResult(sheetUIViewState.result)
+                    lastBuyFlowResult.account ?: return finishWithResult(sheetUIViewState.result)
+                sheetUIViewState.actionContextList.add("ea010408011001b80301".decodeHex())
+                sheetUIViewState.actionContextList.add("0a020802b80301".decodeHex())
                 passwdInputViewState = passwdInputViewState.copy(
                     visible = true,
-                    label = account.name,
-                    bAction = action
+                    label = account.name
                 )
             }
 
@@ -156,14 +155,24 @@ class SheetUIViewModel : ViewModel() {
         }
     }
 
+    private fun showLoading() {
+        loadingDialogVisible = true
+        passwdInputViewState = passwdInputViewState.copy(visible = false)
+        sheetUIViewState = sheetUIViewState.copy(visible = false)
+    }
+
     private fun handleClickAction(action: BAction?) {
         LogUtils.d("handleClickAction action: $action")
         when (action?.type) {
             ActionType.SHOW -> {
                 when (action.uiInfo?.uiType) {
                     UIType.PURCHASE_CART_BUY_BUTTON -> handleBuyButtonClicked(action)
-                    UIType.PURCHASE_CHANGE_SUBSCRIPTION_CONTINUE_BUTTON -> {
-                        if (action.type == ActionType.SHOW && action.screenId?.isNotBlank() == true) {
+                    UIType.PURCHASE_CHANGE_SUBSCRIPTION_CONTINUE_BUTTON,
+                    UIType.PURCHASE_PAYMENT_DECLINED_CONTINUE_BUTTON,
+                    UIType.PURCHASE_CART_PAYMENT_OPTIONS_LINK,
+                    UIType.PURCHASE_CART_CONTINUE_BUTTON,
+                    UIType.BILLING_PROFILE_SCREEN_ABANDON -> {
+                        if (action.screenId?.isNotBlank() == true) {
                             if (showScreen(action.screenId!!)) {
                                 LogUtils.d("showScreen ${action.screenId} success")
                                 return
@@ -171,6 +180,14 @@ class SheetUIViewModel : ViewModel() {
                             LogUtils.d("showScreen ${action.screenId} false")
                         }
                         finishWithResult(sheetUIViewState.result)
+                    }
+
+                    UIType.BILLING_PROFILE_OPTION_CREATE_INSTRUMENT,
+                    UIType.BILLING_PROFILE_OPTION_ADD_PLAY_CREDIT,
+                    UIType.BILLING_PROFILE_OPTION_REDEEM_CODE -> {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            showPaymentMethodPage("action")
+                        }
                     }
 
                     else -> finishWithResult(sheetUIViewState.result)
@@ -187,13 +204,31 @@ class SheetUIViewModel : ViewModel() {
             else -> {
                 when (action?.uiInfo?.uiType) {
                     UIType.PURCHASE_CART_CONTINUE_BUTTON -> viewModelScope.launch(Dispatchers.IO) {
-                        submitBuyAction(action)
+                        submitBuyAction()
                     }
 
                     UIType.PURCHASE_SUCCESS_SCREEN_WITH_AUTH_CHOICES -> {
                         viewModelScope.launch {
                             delay(3000)
                             finishWithResult(sheetUIViewState.result)
+                        }
+                    }
+
+                    UIType.BILLING_PROFILE_EXISTING_INSTRUMENT -> {
+                        LogUtils.d("switch payment method context: ${action.actionContext[0].toHex()}")
+                        showLoading()
+                        sheetUIViewState.actionContextList.addAll(action.actionContext)
+                        viewModelScope.launch(Dispatchers.IO) {
+                            doAcquireRequest()
+                        }
+                    }
+
+                    UIType.PURCHASE_CART_PAYMENT_OPTIONS_LINK -> {
+                        LogUtils.d("open payment option page context: ${action.actionContext[0].toHex()}")
+                        showLoading()
+                        sheetUIViewState.actionContextList.addAll(action.actionContext)
+                        viewModelScope.launch(Dispatchers.IO) {
+                            doAcquireRequest()
                         }
                     }
 
@@ -213,6 +248,16 @@ class SheetUIViewModel : ViewModel() {
         return true
     }
 
+    private suspend fun showPaymentMethodPage(src: String): Boolean {
+        _event.send(
+            NotificationEvent(
+                NotificationEventId.OPEN_PAYMENT_METHOD_ACTIVITY,
+                bundleOf("account" to lastBuyFlowResult.account, "src" to src)
+            )
+        )
+        return true
+    }
+
     private suspend fun handleBuyFlowResult(buyFlowResult: BuyFlowResult) {
         val failAction = suspend {
             _event.send(NotificationEvent(NotificationEventId.FINISH, buyFlowResult.result))
@@ -220,30 +265,23 @@ class SheetUIViewModel : ViewModel() {
         val action = buyFlowResult.acquireResult?.action ?: return failAction()
         val screenMap = buyFlowResult.acquireResult.screenMap
         val showScreen = screenMap[action.screenId] ?: return failAction()
-        LogUtils.d("handleAcquireResult, showScreen:$showScreen result:$buyFlowResult.acquireResult")
+        LogUtils.d("handleAcquireResult, showScreen:$showScreen result:${buyFlowResult.acquireResult}")
         if (action.type != ActionType.SHOW) return failAction()
-        if (showScreen.uiInfo?.uiType == UIType.PURCHASE_PROFILE_SCREEN) {
-            _event.send(
-                NotificationEvent(
-                    NotificationEventId.OPEN_PAYMENT_METHOD_ACTIVITY,
-                    bundleOf("account" to buyFlowResult.account)
-                )
-            )
-        } else {
-            sheetUIViewState = sheetUIViewState.copy(
-                screenMap = screenMap,
-                showScreen = showScreen,
-                result = buyFlowResult.result,
-                visible = true
-            )
-            loadingDialogVisible = false
-        }
+        lastBuyFlowResult = buyFlowResult
+        sheetUIViewState.screenMap.putAll(screenMap)
+        sheetUIViewState = sheetUIViewState.copy(
+            showScreen = showScreen,
+            result = buyFlowResult.result,
+            actionContextList = action.actionContext,
+            visible = true
+        )
+        loadingDialogVisible = false
     }
 
     private suspend fun doLoadSheetUIAction(sheetUIAction: SheetUIAction, param: String) {
         when (sheetUIAction) {
             SheetUIAction.LAUNCH_BUY_FLOW -> {
-                val buyFlowResult = IAPImpl.launchBuyFow(param)
+                val buyFlowResult = IAPImpl.acquireRequest(param, firstRequest = true)
                 handleBuyFlowResult(buyFlowResult)
             }
 
@@ -261,7 +299,7 @@ class SheetUIViewModel : ViewModel() {
         val param = startParams?.getString(KEY_IAP_SHEET_UI_PARAM)
             ?: throw RuntimeException("get action param failed")
         LogUtils.d("loadSheetUIData param:$param")
-        loadingDialogVisible = true
+        showLoading()
         doLoadSheetUIAction(action, param)
     }
 

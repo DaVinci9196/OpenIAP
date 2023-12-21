@@ -8,5 +8,6 @@ object ContextProvider {
 
     fun init(application: Application) {
         context = application
+        DeviceProfileMgr.applyProfile()
     }
 }

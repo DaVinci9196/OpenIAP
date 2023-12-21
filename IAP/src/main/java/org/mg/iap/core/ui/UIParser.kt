@@ -1,5 +1,12 @@
 package org.mg.iap.core.ui
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.mg.iap.core.AcquireParams
+import org.mg.iap.core.PurchaseItem
+import org.mg.iap.core.parsePurchaseItem
 import org.mg.iap.proto.AcquireResponse
 import org.mg.iap.proto.Action
 import org.mg.iap.proto.Animation
@@ -22,12 +29,23 @@ import org.mg.iap.core.responseBundleToMap
 import org.mg.iap.proto.BulletSpan
 import org.mg.iap.proto.ButtonView
 import org.mg.iap.proto.IconView
+import org.mg.iap.proto.ImageGroup
+import org.mg.iap.proto.ImageInfo
+import org.mg.iap.proto.InstrumentItemView
+import org.mg.iap.proto.PurchaseResponse
 import org.mg.iap.proto.TextSpan
 import org.mg.iap.proto.UIInfo
 import org.mg.iap.proto.UiComponents
-import org.mg.iap.proto.iconTextCombinationView
+import org.mg.iap.proto.purchaseResponseOrNull
 import org.mg.iap.proto.uiComponentsOrNull
 import org.mg.iap.proto.uiInfoOrNull
+
+data class AcquireParsedResult(
+    val action: BAction? = null,
+    val result: Map<String, Any> = mapOf("RESPONSE_CODE" to 4, "DEBUG_MESSAGE" to ""),
+    val purchaseItems: List<PurchaseItem>,
+    val screenMap: Map<String, BScreen> = emptyMap()
+)
 
 private fun typeToDpSize(type: Int): Float {
     return when (type) {
@@ -125,6 +143,10 @@ private fun parseAction(action: Action?, result: BAction): Boolean {
     if (action?.hasOptionalAction() == true) {
         return parseAction(action.optionalAction.action1, result)
     }
+    if (action?.hasNavigateToPage() == true) {
+        result.srcScreenId = action.navigateToPage.from
+        return parseAction(action.navigateToPage.action, result)
+    }
     return false
 }
 
@@ -152,10 +174,53 @@ private fun parseIconView(iconView: IconView): BIconView {
     return BIconView(type, text)
 }
 
+private fun parseInstrumentItemView(instrumentItemView: InstrumentItemView): BInstrumentItemView {
+    var icon: BImageView? = null
+    var text: BPlayTextView? = null
+    var tips: BPlayTextView? = null
+    var extraInfo: BPlayTextView? = null
+    var state: BImageView? = null
+    var action: BAction? = null
+    if (instrumentItemView.hasIcon()) {
+        icon = parseImageView(instrumentItemView.icon)
+    }
+    if (instrumentItemView.hasText()) {
+        text = parsePlayTextView(instrumentItemView.text)
+    }
+    if (instrumentItemView.hasTips()) {
+        tips = parsePlayTextView(instrumentItemView.tips)
+    }
+    if (instrumentItemView.hasState()) {
+        state = parseImageView(instrumentItemView.state)
+    }
+    if (instrumentItemView.hasAction()) {
+        action = BAction(ActionType.UNKNOWN)
+        parseAction(instrumentItemView.action, action)
+    }
+    if (instrumentItemView.hasExtraInfo()) {
+        extraInfo = parsePlayTextView(instrumentItemView.extraInfo)
+    }
+    return BInstrumentItemView(icon, text, tips, extraInfo, state, action)
+}
+
+private fun parseImageGroup(imageGroup: ImageGroup): BImageGroup {
+    val imageViews = mutableListOf<BImageView>()
+    var viewInfo: BViewInfo? = null
+
+    if (imageGroup.hasViewInfo()) {
+        viewInfo = parseViewInfo(imageGroup.viewInfo)
+    }
+    imageGroup.imageViewList.forEach {
+        imageViews.add(parseImageView(it))
+    }
+    return BImageGroup(imageViews, viewInfo)
+}
+
 private fun parseImageView(imageView: ImageView): BImageView {
     var darkUrl: String? = null
     var lightUrl: String? = null
     var viewInfo: BViewInfo? = null
+    var imageInfo: BImageInfo? = null
     var iconView: BIconView? = null
     var animation: BAnimation? = null
     if (imageView.hasThumbnailImageView()) {
@@ -167,13 +232,16 @@ private fun parseImageView(imageView: ImageView): BImageView {
     if (imageView.hasViewInfo()) {
         viewInfo = parseViewInfo(imageView.viewInfo)
     }
+    if (imageView.hasImageInfo()) {
+        imageInfo = parseImageInfo(imageView.imageInfo)
+    }
     if (imageView.hasIconView()) {
         iconView = parseIconView(imageView.iconView)
     }
     if (imageView.hasAnimation()) {
         animation = parseAnimation(imageView.animation)
     }
-    return BImageView(viewInfo, lightUrl, darkUrl, animation, iconView)
+    return BImageView(viewInfo, imageInfo, lightUrl, darkUrl, animation, iconView)
 }
 
 private fun parseTextInfo(textInfo: TextInfo): BTextInfo {
@@ -246,14 +314,15 @@ private fun parseSingleLineTextView(singleLineTextView: SingleLineTextView): BSi
 }
 
 private fun parseIconTextCombinationView(iconTextCombinationView: IconTextCombinationView): BIconTextCombinationView {
-    var imageView: BImageView? = null
+    var headerImageView: BImageView? = null
     var playTextView: BPlayTextView? = null
     var badgeTextView: BPlayTextView? = null
-    var singleLineTextViewList: List<BSingleLineTextView>? = null
+    var middleTextViewList: List<BSingleLineTextView>? = null
     var viewInfo: BViewInfo? = null
+    var footerImageGroup: BImageGroup? = null
 
-    if (iconTextCombinationView.hasImageView()) {
-        imageView = parseImageView(iconTextCombinationView.imageView)
+    if (iconTextCombinationView.hasHeaderImageView()) {
+        headerImageView = parseImageView(iconTextCombinationView.headerImageView)
     }
     if (iconTextCombinationView.hasPlayTextView()) {
         playTextView = parsePlayTextView(iconTextCombinationView.playTextView)
@@ -262,18 +331,22 @@ private fun parseIconTextCombinationView(iconTextCombinationView: IconTextCombin
         badgeTextView = parsePlayTextView(iconTextCombinationView.badgeTextView)
     }
     if (iconTextCombinationView.singleLineTextViewCount > 0) {
-        singleLineTextViewList =
+        middleTextViewList =
             iconTextCombinationView.singleLineTextViewList.map { parseSingleLineTextView(it) }
+    }
+    if (iconTextCombinationView.hasFooterImageGroup()) {
+        footerImageGroup = parseImageGroup(iconTextCombinationView.footerImageGroup)
     }
     if (iconTextCombinationView.hasViewInfo()) {
         viewInfo = parseViewInfo(iconTextCombinationView.viewInfo)
     }
 
     return BIconTextCombinationView(
-        imageView,
+        headerImageView,
         playTextView,
         badgeTextView,
-        singleLineTextViewList,
+        middleTextViewList,
+        footerImageGroup,
         viewInfo
     )
 }
@@ -319,6 +392,25 @@ private fun parseModuloImageView(moduloImageView: ModuloImageView): BModuloImage
 
 private fun parseDividerView(dividerView: DividerView): BDividerView {
     return BDividerView()
+}
+
+private fun parseImageInfo(imageInfo: ImageInfo): BImageInfo {
+    var colorFilterValue: Int? = null
+    var colorFilterType: Int? = null
+    var filterMode: Int? = null
+    var scaleType: Int? = null
+    if (imageInfo.hasValue()) {
+        colorFilterValue = imageInfo.value
+    } else if (imageInfo.hasValueType()) {
+        colorFilterType = imageInfo.valueType
+    }
+    if (imageInfo.modeType != 0) {
+        filterMode = imageInfo.modeType
+    }
+    if (imageInfo.scaleType != 0) {
+        scaleType = imageInfo.scaleType
+    }
+    return BImageInfo(colorFilterValue, colorFilterType, filterMode, scaleType)
 }
 
 private fun parseViewInfo(viewInfo: ViewInfo): BViewInfo {
@@ -411,6 +503,7 @@ private fun parseViewInfo(viewInfo: ViewInfo): BViewInfo {
     }
     if (viewInfo.hasAction()) {
         action = BAction(ActionType.UNKNOWN)
+        parseAction(viewInfo.action, action)
     }
     if (viewInfo.visibilityType != 0) {
         visibilityType = viewInfo.visibilityType
@@ -439,13 +532,18 @@ private fun parseViewInfo(viewInfo: ViewInfo): BViewInfo {
 private fun parseContentComponent(contentComponent: ContentComponent): BComponent {
     val tag = contentComponent.tag
     var viewInfo: BViewInfo? = null
+    var uiInfo: BUIInfo? = null
     if (contentComponent.hasViewInfo()) {
         viewInfo = parseViewInfo(contentComponent.viewInfo)
+    }
+    if (contentComponent.hasUiInfo()) {
+        uiInfo = parseUIInfo(contentComponent.uiInfo)
     }
     return when (contentComponent.uiComponentCase) {
         ContentComponent.UiComponentCase.ICONTEXTCOMBINATIONVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.ICONTEXTCOMBINATIONVIEW,
                 iconTextCombinationView = parseIconTextCombinationView(contentComponent.iconTextCombinationView)
@@ -455,6 +553,7 @@ private fun parseContentComponent(contentComponent: ContentComponent): BComponen
         ContentComponent.UiComponentCase.CLICKABLETEXTVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.CLICKABLETEXTVIEW,
                 clickableTextView = parseClickableTextView(contentComponent.clickableTextView)
@@ -464,6 +563,7 @@ private fun parseContentComponent(contentComponent: ContentComponent): BComponen
         ContentComponent.UiComponentCase.VIEWGROUP -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.VIEWGROUP,
                 viewGroup = parseViewGroup(contentComponent.viewGroup)
@@ -473,6 +573,7 @@ private fun parseContentComponent(contentComponent: ContentComponent): BComponen
         ContentComponent.UiComponentCase.DIVIDERVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.DIVIDERVIEW,
                 dividerView = parseDividerView(contentComponent.dividerView)
@@ -482,6 +583,7 @@ private fun parseContentComponent(contentComponent: ContentComponent): BComponen
         ContentComponent.UiComponentCase.MODULOIMAGEVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.MODULOIMAGEVIEW,
                 moduloImageView = parseModuloImageView(contentComponent.moduloImageView)
@@ -491,9 +593,20 @@ private fun parseContentComponent(contentComponent: ContentComponent): BComponen
         ContentComponent.UiComponentCase.BUTTONGROUPVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.BUTTONGROUPVIEW,
                 buttonGroupView = parseButtonGroupView(contentComponent.buttonGroupView)
+            )
+        }
+
+        ContentComponent.UiComponentCase.INSTRUMENTITEMVIEW -> {
+            BComponent(
+                tag,
+                uiInfo,
+                viewInfo,
+                ViewType.INSTRUMENTITEMVIEW,
+                instrumentItemView = parseInstrumentItemView(contentComponent.instrumentItemView)
             )
         }
 
@@ -532,13 +645,18 @@ private fun parseButtonGroupView(buttonGroupView: ButtonGroupView): BButtonGroup
 private fun parseFooterComponent(footerComponent: FooterComponent): BComponent {
     val tag = footerComponent.tag
     var viewInfo: BViewInfo? = null
+    var uiInfo: BUIInfo? = null
     if (footerComponent.hasViewInfo()) {
         viewInfo = parseViewInfo(footerComponent.viewInfo)
+    }
+    if (footerComponent.hasUiInfo()) {
+        uiInfo = parseUIInfo(footerComponent.uiInfo)
     }
     return when (footerComponent.uiComponentCase) {
         FooterComponent.UiComponentCase.BUTTONGROUPVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.BUTTONGROUPVIEW,
                 buttonGroupView = parseButtonGroupView(footerComponent.buttonGroupView)
@@ -548,6 +666,7 @@ private fun parseFooterComponent(footerComponent: FooterComponent): BComponent {
         FooterComponent.UiComponentCase.DIVIDERVIEW -> {
             BComponent(
                 tag,
+                uiInfo,
                 viewInfo,
                 ViewType.DIVIDERVIEW,
                 dividerView = parseDividerView(footerComponent.dividerView)
@@ -582,4 +701,57 @@ private fun parseScreenComponents(uiComponents: UiComponents): BUIComponents {
     }
 
     return BUIComponents(headerComponents, contentComponents, footerComponents)
+}
+
+fun parsePurchaseResponse(
+    acquireParams: AcquireParams,
+    purchaseResponse: PurchaseResponse?
+): Pair<Map<String, Any>, PurchaseItem?> {
+    if (purchaseResponse == null) {
+        return mapOf<String, Any>("RESPONSE_CODE" to 0, "DEBUG_MESSAGE" to "") to null
+    }
+    val resultMap = responseBundleToMap(purchaseResponse.responseBundle)
+    val code = resultMap["RESPONSE_CODE"] as Int? ?: return mapOf<String, Any>(
+        "RESPONSE_CODE" to 0,
+        "DEBUG_MESSAGE" to ""
+    ) to null
+    val pd = resultMap["INAPP_PURCHASE_DATA"] as String? ?: return resultMap to null
+    val ps = resultMap["INAPP_DATA_SIGNATURE"] as String? ?: return resultMap to null
+    if (code != 0) return resultMap to null
+    val pdj = Json.parseToJsonElement(pd).jsonObject
+    val packageName =
+        pdj["packageName"]?.jsonPrimitive?.content ?: return resultMap to null
+    val purchaseToken =
+        pdj["purchaseToken"]?.jsonPrimitive?.content ?: return resultMap to null
+    val purchaseState =
+        pdj["purchaseState"]?.jsonPrimitive?.int ?: return resultMap to null
+    return resultMap to PurchaseItem(
+        acquireParams.buyFlowParams.skuType,
+        acquireParams.buyFlowParams.sku,
+        packageName,
+        purchaseToken,
+        purchaseState,
+        pd, ps
+    )
+}
+
+fun parseAcquireResponse(
+    acquireParams: AcquireParams,
+    acquireResponse: AcquireResponse
+): AcquireParsedResult {
+    val action = BAction(ActionType.UNKNOWN)
+    parseAction(acquireResponse.action, action)
+    val screenMap = parseScreenMap(acquireResponse.screenMap)
+    val (result, purchaseItem) = parsePurchaseResponse(
+        acquireParams,
+        acquireResponse.acquireResult.purchaseResponseOrNull
+    )
+    val purchaseItems = mutableListOf<PurchaseItem>()
+    if (purchaseItem != null) purchaseItems.add(purchaseItem)
+    if (acquireResponse.acquireResult.hasOwnedPurchase()) {
+        acquireResponse.acquireResult.ownedPurchase.purchaseItemList.forEach {
+            purchaseItems.addAll(parsePurchaseItem(it))
+        }
+    }
+    return AcquireParsedResult(action, result, purchaseItems, screenMap)
 }
