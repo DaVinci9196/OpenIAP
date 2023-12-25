@@ -14,6 +14,7 @@ import androidx.webkit.WebResourceErrorCompat
 import androidx.webkit.WebViewClientCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.mg.iap.Build
 import org.mg.iap.LogUtils
 import java.net.URLEncoder
 import java.util.Locale
@@ -112,5 +113,6 @@ class WebViewHelper(
         settings.useWideViewPort = false
         settings.setSupportZoom(false)
         settings.javaScriptCanOpenWindowsAutomatically = false
+        settings.userAgentString = Build.generateWebViewUserAgentString(settings.userAgentString)
     }
 }
